@@ -1,17 +1,16 @@
 """
-PCB 樂高卡扣盒 v3 — FreeCAD Macro
+PCB 樂高卡扣盒 v4 — FreeCAD Macro
 ====================================
-v3 設計重點：
-  - 樂高圓柱管（外徑 6mm / 孔 4.8mm）從背板往上長到 PCB 底面，同時做樂高孔 + PCB 支撐
-  - 卡扣移至長邊中央，兩側有 slot，讓舌片可向外彈開
-  - 舌片下方完全無突出，PCB 從開口直接壓入
-  - 所有結構垂直生長，無需支撐
+v4 變更：
+  - 圓柱管高度改為 4.6mm（給 PCB 背面零件留 3.8mm 空間）
+  - 移除全寬橫肋，改為四角楔塊支撐 PCB 底面
+  - 樂高孔貫穿修正：先 fuse 外管，再 cut 內孔
 """
 
 import FreeCAD, Part
 from FreeCAD import Vector
 
-doc = FreeCAD.newDocument("PCB_LegoBox_v3")
+doc = FreeCAD.newDocument("PCB_LegoBox_v4")
 
 # ─── 可調參數 ──────────────────────────────────────────────
 PCB_L     = 48.0   # PCB 長邊 (mm) — X 方向
@@ -23,90 +22,82 @@ CLEAR     = 0.3    # PCB 每邊間隙
 
 # 樂高圓柱管
 LEGO_P    = 8.0    # 孔間距
-LEGO_RI   = 2.4    # 內孔半徑（直徑 4.8mm，樂高 Technic 標準）
+LEGO_RI   = 2.4    # 內孔半徑（直徑 4.8mm）
 LEGO_RO   = 3.0    # 外管半徑（直徑 6mm）
 LEGO_ROWS = 3
 LEGO_COLS = 3
+CYL_H     = 4.6    # 圓柱高度（從 Z=0，給 PCB 背面零件留空）
 
-# 卡扣（長邊中央，slot 式舌片）
+# 四角楔塊（支撐 PCB 底面）
+CORNER_W  = 2.0    # 楔塊 XY 尺寸（內凸距離）
+
+# 卡扣（長邊中央，slot 式）
 CLIP_W    = 10.0   # 舌片寬度（X 方向）
-LIP_D     = 1.0    # 唇口往內凸出（Y 方向，需 > CLEAR 才能 snap）
+LIP_D     = 1.0    # 唇口往內凸出（Y 方向）
 LIP_H     = 1.5    # 唇口高度（Z 方向）
-SLOT_W    = 0.8    # 兩側 slot 寬度（X 方向）
-SLOT_D    = 5.0    # slot 深度（Z 方向，越深舌片越有彈性）
+SLOT_W    = 0.8    # slot 寬度（X 方向）
+SLOT_D    = 5.0    # slot 深度（Z 方向）
 # ──────────────────────────────────────────────────────────
 
-in_l  = PCB_L + 2*CLEAR      # 內腔長（X）= 48.6mm
-in_w  = PCB_W + 2*CLEAR      # 內腔寬（Y）= 24.6mm
-ot_l  = in_l + 2*WALL        # 外殼長（X）= 52.6mm
-ot_w  = in_w + 2*WALL        # 外殼寬（Y）= 28.6mm
-pcb_z = BOX_D - PCB_T        # PCB 底面 Z = 8.4mm（靠在圓柱頂）
-cyl_h = pcb_z - WALL         # 圓柱管高度 = 6.4mm（從背板內面到 PCB 底面）
+in_l     = PCB_L + 2*CLEAR      # 內腔長 = 48.6mm
+in_w     = PCB_W + 2*CLEAR      # 內腔寬 = 24.6mm
+ot_l     = in_l + 2*WALL        # 外殼長 = 52.6mm
+ot_w     = in_w + 2*WALL        # 外殼寬 = 28.6mm
+pcb_z    = BOX_D - PCB_T        # PCB 底面 Z = 8.4mm
+corner_h = pcb_z - WALL         # 楔塊高度 = 6.4mm
 
 # ─── 1. 外殼 ────────────────────────────────────────────────
 outer  = Part.makeBox(ot_l, ot_w, BOX_D)
 cavity = Part.makeBox(in_l, in_w, BOX_D - WALL, Vector(WALL, WALL, WALL))
 body   = outer.cut(cavity)
 
-# ─── 2. 樂高圓柱管（3×3，垂直生長，不需支撐）───────────────
-# 管從 Z=0（外）到 Z=WALL+cyl_h=pcb_z（圓柱頂面 = PCB 底面）
-# 外管：實心圓柱
-# 內孔：貫穿整根柱（從背板外面到 PCB 底面），讓樂高插柱可以插入
-
-bcx = ot_l / 2   # 圓柱陣列中心 X
-bcy = ot_w / 2   # 圓柱陣列中心 Y
-
+# ─── 2. 樂高圓柱管（3×3，高 4.6mm）─────────────────────────
+# 先 fuse 外管（加材料），再 cut 內孔（減材料，確保孔貫穿背板）
+bcx = ot_l / 2
+bcy = ot_w / 2
 for r in range(LEGO_ROWS):
     for c in range(LEGO_COLS):
-        hx = bcx + (c - (LEGO_COLS - 1) / 2) * LEGO_P
-        hy = bcy + (r - (LEGO_ROWS - 1) / 2) * LEGO_P
-        # 外管（從背板外面 Z=0 長到 PCB 底面 Z=pcb_z）
-        ocyl = Part.makeCylinder(LEGO_RO, pcb_z,
-                                  Vector(hx, hy, 0), Vector(0, 0, 1))
-        # 先 fuse 外管（加材料），再 cut 內孔（減材料）
-        # 注意：不能 fuse(ocyl.cut(icyl))，那樣背板實心會把孔填回來
+        hx = bcx + (c - (LEGO_COLS-1)/2) * LEGO_P
+        hy = bcy + (r - (LEGO_ROWS-1)/2) * LEGO_P
+        ocyl = Part.makeCylinder(LEGO_RO, CYL_H, Vector(hx, hy, 0), Vector(0,0,1))
         body = body.fuse(ocyl)
-        icyl = Part.makeCylinder(LEGO_RI, pcb_z + 0.2,
-                                  Vector(hx, hy, -0.1), Vector(0, 0, 1))
+        icyl = Part.makeCylinder(LEGO_RI, CYL_H + 0.2, Vector(hx, hy, -0.1), Vector(0,0,1))
         body = body.cut(icyl)
 
-# ─── 3. 卡扣（長邊中央，slot 式 snap-fit）──────────────────
-# 結構說明（Y-Z 截面，Y=0 側）：
-#
-#  Z=BOX_D  ─────────[唇口]─────── ← 唇口往內凸 LIP_D，高 LIP_H
-#  Z=8.5    ─────────────────────── ← 唇口底面（剛好在 PCB 底面之上）
-#  Z=5      ────────────────────────
-#              ↑ slot 從 Z=5 到 Z=10，切穿兩側，讓中央舌片可彈
-#
-#  Y=0（外）  Y=2（內壁）  Y=3（唇口內緣）
-#  PCB 邊緣在 Y=2.3mm（WALL+CLEAR），唇口凸到 Y=3.0mm → 0.7mm snap
+# ─── 3. 四角楔塊（內腔四角，PCB 底面落在楔塊頂面）────────────
+# 楔塊從背板（Z=WALL）往上長到 PCB 底面（Z=pcb_z），垂直不需支撐
+# PCB 角落在 (WALL+CLEAR, WALL+CLEAR) = (2.3, 2.3)
+# 楔塊 2×2mm 內凸，給 PCB 角落 1.7mm 支撐面積
 
-cx   = ot_l / 2          # 長邊中心 X
-lx0  = cx - CLIP_W / 2   # 舌片左端 X
-lx1  = cx + CLIP_W / 2   # 舌片右端 X
+corners = [
+    Vector(WALL,                WALL,                WALL),   # 左下角
+    Vector(WALL,                ot_w-WALL-CORNER_W,  WALL),   # 左上角
+    Vector(ot_l-WALL-CORNER_W,  WALL,                WALL),   # 右下角
+    Vector(ot_l-WALL-CORNER_W,  ot_w-WALL-CORNER_W,  WALL),   # 右上角
+]
+for pos in corners:
+    blk  = Part.makeBox(CORNER_W, CORNER_W, corner_h, pos)
+    body = body.fuse(blk)
 
-# 唇口（兩個長邊各加一個）
-lip_a = Part.makeBox(CLIP_W, LIP_D, LIP_H,
-                     Vector(lx0, WALL, BOX_D - LIP_H))
-lip_b = Part.makeBox(CLIP_W, LIP_D, LIP_H,
-                     Vector(lx0, ot_w - WALL - LIP_D, BOX_D - LIP_H))
-body = body.fuse(lip_a).fuse(lip_b)
+# ─── 4. 卡扣（兩條長邊中央，slot 式 snap-fit）──────────────
+mx   = ot_l / 2
+lx0  = mx - CLIP_W/2
+lx1  = mx + CLIP_W/2
 
-# Slot（切穿壁，Y=0 側：從 Y=−0.1 穿到 Y=WALL+0.1）
-sL_a = Part.makeBox(SLOT_W, WALL + 0.2, SLOT_D,
-                    Vector(lx0 - SLOT_W, -0.1, BOX_D - SLOT_D))
-sR_a = Part.makeBox(SLOT_W, WALL + 0.2, SLOT_D,
-                    Vector(lx1,          -0.1, BOX_D - SLOT_D))
-# Slot（Y=ot_w 側：從 Y=ot_w−WALL−0.1 穿到 Y=ot_w+0.1）
-sL_b = Part.makeBox(SLOT_W, WALL + 0.2, SLOT_D,
-                    Vector(lx0 - SLOT_W, ot_w - WALL - 0.1, BOX_D - SLOT_D))
-sR_b = Part.makeBox(SLOT_W, WALL + 0.2, SLOT_D,
-                    Vector(lx1,          ot_w - WALL - 0.1, BOX_D - SLOT_D))
+# 唇口（只在開口頂端，下方完全平整）
+lip_a = Part.makeBox(CLIP_W, LIP_D, LIP_H, Vector(lx0, WALL,              BOX_D-LIP_H))
+lip_b = Part.makeBox(CLIP_W, LIP_D, LIP_H, Vector(lx0, ot_w-WALL-LIP_D,  BOX_D-LIP_H))
+body  = body.fuse(lip_a).fuse(lip_b)
 
-body = body.cut(sL_a).cut(sR_a).cut(sL_b).cut(sR_b)
+# Slot（切穿兩側壁，讓舌片可向外彈）
+sL_a = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx0-SLOT_W, -0.1,           BOX_D-SLOT_D))
+sR_a = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx1,         -0.1,           BOX_D-SLOT_D))
+sL_b = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx0-SLOT_W,  ot_w-WALL-0.1, BOX_D-SLOT_D))
+sR_b = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx1,          ot_w-WALL-0.1, BOX_D-SLOT_D))
+body  = body.cut(sL_a).cut(sR_a).cut(sL_b).cut(sR_b)
 
-# ─── 4. 加入文件 ───────────────────────────────────────────
-feat = doc.addObject("Part::Feature", "PCB_LegoBox_v3")
+# ─── 5. 加入文件 ───────────────────────────────────────────
+feat = doc.addObject("Part::Feature", "PCB_LegoBox_v4")
 feat.Shape = body
 doc.recompute()
 
@@ -117,13 +108,11 @@ try:
 except Exception:
     pass
 
-snap_engagement = LIP_D - CLEAR
-print("=" * 52)
+print("=" * 54)
 print(f"  外殼      : {ot_l:.1f} x {ot_w:.1f} x {BOX_D:.0f} mm")
-print(f"  圓柱管    : ∅{LEGO_RO*2:.0f}mm 外 / ∅{LEGO_RI*2:.0f}mm 孔，高 {cyl_h:.1f}mm")
-print(f"  PCB 底面  : Z={pcb_z:.1f}（靠在圓柱頂）")
-print(f"  卡扣 snap : {snap_engagement:.1f}mm（唇口 {LIP_D}mm − 間隙 {CLEAR}mm）")
-print(f"  舌片彈臂  : {SLOT_D:.0f}mm 深 slot，壁厚 {WALL:.0f}mm")
-print("=" * 52)
-print("建議：PETG 列印，開口朝上，無需支撐")
-print("若卡扣太緊：增大 CLEAR；太鬆：減小 CLEAR 或增大 LIP_D")
+print(f"  圓柱管    : ∅{LEGO_RO*2:.0f}mm / ∅{LEGO_RI*2:.0f}mm，高 {CYL_H}mm")
+print(f"  PCB 背面  : {pcb_z - CYL_H:.1f}mm 零件空間（Z={CYL_H}～{pcb_z:.1f}）")
+print(f"  四角楔塊  : {CORNER_W}×{CORNER_W}mm，高 {corner_h:.1f}mm，頂面 Z={pcb_z:.1f}")
+print(f"  卡扣 snap : {LIP_D-CLEAR:.1f}mm")
+print("=" * 54)
+print("建議：PETG，開口朝上，無需支撐")
