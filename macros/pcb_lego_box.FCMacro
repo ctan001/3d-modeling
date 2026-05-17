@@ -63,10 +63,12 @@ for r in range(LEGO_ROWS):
         # 外管（從背板外面 Z=0 長到 PCB 底面 Z=pcb_z）
         ocyl = Part.makeCylinder(LEGO_RO, pcb_z,
                                   Vector(hx, hy, 0), Vector(0, 0, 1))
-        # 內孔（貫穿）
+        # 先 fuse 外管（加材料），再 cut 內孔（減材料）
+        # 注意：不能 fuse(ocyl.cut(icyl))，那樣背板實心會把孔填回來
+        body = body.fuse(ocyl)
         icyl = Part.makeCylinder(LEGO_RI, pcb_z + 0.2,
                                   Vector(hx, hy, -0.1), Vector(0, 0, 1))
-        body = body.fuse(ocyl.cut(icyl))
+        body = body.cut(icyl)
 
 # ─── 3. 卡扣（長邊中央，slot 式 snap-fit）──────────────────
 # 結構說明（Y-Z 截面，Y=0 側）：
