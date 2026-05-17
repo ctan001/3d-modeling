@@ -1,0 +1,11 @@
+# FreeCAD 暫存檔
+*.FCBak
+*.FCStd1
+
+# 切片軟體暫存
+*.3mf.bak
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
