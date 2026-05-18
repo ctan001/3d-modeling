@@ -1,6 +1,10 @@
 """
-PCB 樂高卡扣盒 v4 — FreeCAD Macro
+PCB 樂高卡扣盒 v5 — FreeCAD Macro
 ====================================
+v5 變更：
+  - 四角楔塊加寬至 4×4mm（圓角 PCB 支撐更穩）
+  - 新增 WEDGE_DROP=1.5mm：楔塊頂部往下降，增加 PCB 厚度公差
+    （楔塊頂 Z=6.9mm，唇口底 Z=8.5mm，1.6mm PCB 剛好填滿；更厚 PCB 靠 snap-fit 撐進）
 v4 變更：
   - 圓柱管高度改為 4.6mm（給 PCB 背面零件留 3.8mm 空間）
   - 移除全寬橫肋，改為四角楔塊支撐 PCB 底面
@@ -10,7 +14,7 @@ v4 變更：
 import FreeCAD, Part
 from FreeCAD import Vector
 
-doc = FreeCAD.newDocument("PCB_LegoBox_v4")
+doc = FreeCAD.newDocument("PCB_LegoBox_v5")
 
 # ─── 可調參數 ──────────────────────────────────────────────
 PCB_L     = 48.0   # PCB 長邊 (mm) — X 方向
@@ -29,7 +33,8 @@ LEGO_COLS = 3
 CYL_H     = 4.6    # 圓柱高度（從 Z=0，給 PCB 背面零件留空）
 
 # 四角楔塊（支撐 PCB 底面）
-CORNER_W  = 2.0    # 楔塊 XY 尺寸（內凸距離）
+CORNER_W   = 4.0   # 楔塊 XY 尺寸（v5: 4mm，適合圓角 PCB）
+WEDGE_DROP = 1.5   # 楔塊頂部往下降（增加 PCB 厚度公差）
 
 # 卡扣（長邊中央，slot 式）
 CLIP_W    = 10.0   # 舌片寬度（X 方向）
@@ -43,8 +48,8 @@ in_l     = PCB_L + 2*CLEAR      # 內腔長 = 48.6mm
 in_w     = PCB_W + 2*CLEAR      # 內腔寬 = 24.6mm
 ot_l     = in_l + 2*WALL        # 外殼長 = 52.6mm
 ot_w     = in_w + 2*WALL        # 外殼寬 = 28.6mm
-pcb_z    = BOX_D - PCB_T        # PCB 底面 Z = 8.4mm
-corner_h = pcb_z - WALL         # 楔塊高度 = 6.4mm
+pcb_z    = BOX_D - PCB_T        # PCB 底面設計 Z = 8.4mm
+corner_h = pcb_z - WALL - WEDGE_DROP  # 楔塊高度 = 4.9mm
 
 # ─── 1. 外殼 ────────────────────────────────────────────────
 outer  = Part.makeBox(ot_l, ot_w, BOX_D)
@@ -65,15 +70,11 @@ for r in range(LEGO_ROWS):
         body = body.cut(icyl)
 
 # ─── 3. 四角楔塊（內腔四角，PCB 底面落在楔塊頂面）────────────
-# 楔塊從背板（Z=WALL）往上長到 PCB 底面（Z=pcb_z），垂直不需支撐
-# PCB 角落在 (WALL+CLEAR, WALL+CLEAR) = (2.3, 2.3)
-# 楔塊 2×2mm 內凸，給 PCB 角落 1.7mm 支撐面積
-
 corners = [
     Vector(WALL,                WALL,                WALL),   # 左下角
     Vector(WALL,                ot_w-WALL-CORNER_W,  WALL),   # 左上角
     Vector(ot_l-WALL-CORNER_W,  WALL,                WALL),   # 右下角
-    Vector(ot_l-WALL-CORNER_W,  ot_w-WALL-CORNER_W,  WALL),   # 右上角
+    Vector(ot_l-WALL-CORNER_W,  ot_w-WALL-CORNER_W,  WALL),  # 右上角
 ]
 for pos in corners:
     blk  = Part.makeBox(CORNER_W, CORNER_W, corner_h, pos)
@@ -97,7 +98,7 @@ sR_b = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx1,          ot_w-WALL-0.1
 body  = body.cut(sL_a).cut(sR_a).cut(sL_b).cut(sR_b)
 
 # ─── 5. 加入文件 ───────────────────────────────────────────
-feat = doc.addObject("Part::Feature", "PCB_LegoBox_v4")
+feat = doc.addObject("Part::Feature", "PCB_LegoBox_v5")
 feat.Shape = body
 doc.recompute()
 
@@ -112,7 +113,7 @@ print("=" * 54)
 print(f"  外殼      : {ot_l:.1f} x {ot_w:.1f} x {BOX_D:.0f} mm")
 print(f"  圓柱管    : ∅{LEGO_RO*2:.0f}mm / ∅{LEGO_RI*2:.0f}mm，高 {CYL_H}mm")
 print(f"  PCB 背面  : {pcb_z - CYL_H:.1f}mm 零件空間（Z={CYL_H}～{pcb_z:.1f}）")
-print(f"  四角楔塊  : {CORNER_W}×{CORNER_W}mm，高 {corner_h:.1f}mm，頂面 Z={pcb_z:.1f}")
-print(f"  卡扣 snap : {LIP_D-CLEAR:.1f}mm")
+print(f"  四角楔塊  : {CORNER_W}×{CORNER_W}mm，高 {corner_h:.1f}mm，頂面 Z={WALL+corner_h:.1f}")
+print(f"  卡扣空間  : {BOX_D-LIP_H-(WALL+corner_h):.1f}mm（楔塊頂 Z={WALL+corner_h:.1f} → 唇口底 Z={BOX_D-LIP_H:.1f}）")
 print("=" * 54)
 print("建議：PETG，開口朝上，無需支撐")
