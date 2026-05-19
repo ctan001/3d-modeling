@@ -1,0 +1,114 @@
+"""
+PCB 樂高卡扣盒 — pcb-70x48 專案 v1
+=====================================
+PCB：70 × 48mm
+外殼：74.6 × 52.6 × 11.5mm
+側孔：無
+樣板版本：v8（2026-05-18 鎖定）
+"""
+
+import FreeCAD, Part
+from FreeCAD import Vector
+
+doc = FreeCAD.newDocument("PCB_LegoBox_70x48_v1")
+
+# ─── 輸入變數 ──────────────────────────────────────────────
+PCB_L = 70.0   # PCB 長邊 (mm)
+PCB_W = 48.0   # PCB 短邊 (mm)
+
+# ─── 鎖定參數（v8，勿改）─────────────────────────────────
+PCB_T     = 1.6
+BOX_D     = 11.5
+WALL      = 2.0
+FLOOR_T   = WALL + 1.5   # 3.5mm
+CLEAR     = 0.3
+
+LEGO_P    = 8.0
+LEGO_RI   = 2.5           # ∅5.0mm，PETG 實測正確
+LEGO_RO   = 3.0
+LEGO_ROWS = 3
+LEGO_COLS = 3
+CYL_H     = 4.6
+
+CORNER_W   = 4.0
+WEDGE_DROP = 1.5
+
+CLIP_W    = 10.0
+LIP_D     = 1.0
+LIP_H     = 1.5
+SLOT_W    = 0.8
+SLOT_D    = 5.0
+# ──────────────────────────────────────────────────────────
+
+in_l     = PCB_L + 2*CLEAR      # 內腔長 = 70.6mm
+in_w     = PCB_W + 2*CLEAR      # 內腔寬 = 48.6mm
+ot_l     = in_l + 2*WALL        # 外殼長 = 74.6mm
+ot_w     = in_w + 2*WALL        # 外殼寬 = 52.6mm
+pcb_z    = BOX_D - PCB_T        # PCB 底面 Z = 9.9mm
+corner_h = pcb_z - FLOOR_T - WEDGE_DROP  # 楔塊高度 = 4.9mm
+
+# ─── 1. 外殼 ────────────────────────────────────────────────
+outer  = Part.makeBox(ot_l, ot_w, BOX_D)
+cavity = Part.makeBox(in_l, in_w, BOX_D - FLOOR_T, Vector(WALL, WALL, FLOOR_T))
+body   = outer.cut(cavity)
+
+# ─── 2. 樂高圓柱管（3×3，高 4.6mm）─────────────────────────
+bcx = ot_l / 2
+bcy = ot_w / 2
+for r in range(LEGO_ROWS):
+    for c in range(LEGO_COLS):
+        hx = bcx + (c - (LEGO_COLS-1)/2) * LEGO_P
+        hy = bcy + (r - (LEGO_ROWS-1)/2) * LEGO_P
+        ocyl = Part.makeCylinder(LEGO_RO, CYL_H, Vector(hx, hy, 0), Vector(0,0,1))
+        body = body.fuse(ocyl)
+        icyl = Part.makeCylinder(LEGO_RI, CYL_H + 0.2, Vector(hx, hy, -0.1), Vector(0,0,1))
+        body = body.cut(icyl)
+
+# ─── 3. 四角楔塊 ────────────────────────────────────────────
+corners = [
+    Vector(WALL,                WALL,                FLOOR_T),
+    Vector(WALL,                ot_w-WALL-CORNER_W,  FLOOR_T),
+    Vector(ot_l-WALL-CORNER_W,  WALL,                FLOOR_T),
+    Vector(ot_l-WALL-CORNER_W,  ot_w-WALL-CORNER_W,  FLOOR_T),
+]
+for pos in corners:
+    blk  = Part.makeBox(CORNER_W, CORNER_W, corner_h, pos)
+    body = body.fuse(blk)
+
+# ─── 4. 卡扣（兩條長邊中央，slot 式 snap-fit）──────────────
+mx   = ot_l / 2
+lx0  = mx - CLIP_W/2
+lx1  = mx + CLIP_W/2
+
+lip_a = Part.makeBox(CLIP_W, LIP_D, LIP_H, Vector(lx0, WALL,              BOX_D-LIP_H))
+lip_b = Part.makeBox(CLIP_W, LIP_D, LIP_H, Vector(lx0, ot_w-WALL-LIP_D,  BOX_D-LIP_H))
+body  = body.fuse(lip_a).fuse(lip_b)
+
+sL_a = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx0-SLOT_W, -0.1,           BOX_D-SLOT_D))
+sR_a = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx1,         -0.1,           BOX_D-SLOT_D))
+sL_b = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx0-SLOT_W,  ot_w-WALL-0.1, BOX_D-SLOT_D))
+sR_b = Part.makeBox(SLOT_W, WALL+0.2, SLOT_D, Vector(lx1,          ot_w-WALL-0.1, BOX_D-SLOT_D))
+body  = body.cut(sL_a).cut(sR_a).cut(sL_b).cut(sR_b)
+
+# ─── 5. 加入文件 ───────────────────────────────────────────
+feat = doc.addObject("Part::Feature", "PCB_LegoBox_70x48_v1")
+feat.Shape = body
+doc.recompute()
+
+try:
+    import FreeCADGui
+    FreeCADGui.SendMsgToActiveView("ViewFit")
+    FreeCADGui.activeDocument().activeView().viewIsometric()
+except Exception:
+    pass
+
+print("=" * 54)
+print(f"  專案      : pcb-70x48 v1")
+print(f"  外殼      : {ot_l:.1f} x {ot_w:.1f} x {BOX_D:.1f} mm")
+print(f"  底板厚度  : {FLOOR_T:.1f}mm（側壁 {WALL}mm）")
+print(f"  內腔深度  : {BOX_D-FLOOR_T:.1f}mm")
+print(f"  圓柱管    : ∅{LEGO_RO*2:.0f}mm / ∅{LEGO_RI*2:.0f}mm，高 {CYL_H}mm")
+print(f"  四角楔塊  : 高 {corner_h:.1f}mm，頂面 Z={FLOOR_T+corner_h:.1f}")
+print(f"  側孔      : 無")
+print("=" * 54)
+print("建議：PETG，開口朝上，無需支撐")
