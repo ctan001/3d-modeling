@@ -1,0 +1,123 @@
+# -*- coding: utf-8 -*-
+# keycap_enter_1u_v1.FCMacro
+# 均勻碟面 1U 鍵帽 + Cherry MX 十字軸 + 回車折返箭頭(獨立黑色實體)
+# 帽體與字為兩個獨立 solid，介面完美貼合 -> H2D 雙色 PETG
+# 列印方向：頂面朝下、免支撐（碗面淺、牆外擴16°、軸柱朝上）
+# 專案：鍵帽專案 / Action 2026-06-15_Cherry鍵帽
+import os, math
+import FreeCAD as App
+import Part
+try:
+    import FreeCADGui as Gui
+except Exception:
+    Gui = None
+
+# ============ 參數 ============
+BASE      = 18.2   # 底部 footprint (1U)
+TOP       = 13.5   # 頂部 footprint
+H         = 8.0    # 鍵帽高度
+WALL      = 1.5    # 壁厚
+CORNER_R  = 1.5    # 邊角圓角
+DISH      = 1.0    # 碗陷深度(中心)
+CEIL_Z    = 5.5    # 內腔頂(天花板下緣)Z -> 中心天花板厚 = (H-DISH)-CEIL_Z = 1.5mm
+LEG_DEPTH = 1.0    # 字凹陷深度(=黑字厚)
+
+# MX 十字軸
+BOSS_R    = 2.75   # 軸座外徑 5.5
+BOSS_H    = 4.0    # 軸座高
+CROSS_L   = 4.1    # 十字長
+CROSS_W   = 1.3    # 十字寬(含 PETG 公差；太緊改 1.35)
+
+# 箭頭筆寬
+SW = 1.6
+SH = SW / 2.0
+
+# ============ 工具 ============
+def rect_wire(w, z):
+    h = w / 2.0
+    p = [App.Vector(-h,-h,z), App.Vector(h,-h,z), App.Vector(h,h,z),
+         App.Vector(-h,h,z), App.Vector(-h,-h,z)]
+    return Part.makePolygon(p)
+
+def box(x0, y0, x1, y1, z0, z1):
+    return Part.makeBox(x1-x0, y1-y0, z1-z0, App.Vector(x0, y0, z0))
+
+# ============ 1. 外殼(梯台) + 圓角 ============
+outer = Part.makeLoft([rect_wire(BASE, 0.0), rect_wire(TOP, H)], True)
+corner_edges = [e for e in outer.Edges if e.BoundBox.ZLength > 1.0]
+try:
+    outer = outer.makeFillet(CORNER_R, corner_edges)
+except Exception as e:
+    App.Console.PrintWarning("圓角失敗，保留直角: %s\n" % e)
+
+# ============ 2. 碗面(同心球) ============
+a  = TOP / 2.0
+R1 = (a*a + DISH*DISH) / (2.0*DISH)      # 碗面球半徑
+Cz = (H - DISH) + R1                     # 球心 Z
+C  = App.Vector(0, 0, Cz)
+S1 = Part.makeSphere(R1, C)              # 碗面
+S2 = Part.makeSphere(R1 + LEG_DEPTH, C)  # 碗下 LEG_DEPTH 的面
+cap = outer.cut(S1)
+
+# ============ 3. 內腔中空 ============
+inner = Part.makeLoft([rect_wire(BASE - 2*WALL, -0.1),
+                       rect_wire(TOP - 2*WALL, CEIL_Z)], True)
+cap = cap.cut(inner)
+
+# ============ 4. MX 十字軸 ============
+boss = Part.makeCylinder(BOSS_R, BOSS_H, App.Vector(0, 0, CEIL_Z - BOSS_H))
+cap = cap.fuse(boss)
+cz0, cz1 = CEIL_Z - BOSS_H - 0.2, CEIL_Z + 0.01
+cross = box(-CROSS_L/2, -CROSS_W/2, CROSS_L/2, CROSS_W/2, cz0, cz1) \
+        .fuse(box(-CROSS_W/2, -CROSS_L/2, CROSS_W/2, CROSS_L/2, cz0, cz1))
+cap = cap.cut(cross)
+
+# ============ 5. 回車折返箭頭(獨立實體) ============
+zlo, zhi = 4.5, 9.0
+riser = box( 1.6, -1.8,  3.2,  2.6, zlo, zhi)         # 右側直筆(往上)
+shaft = box(-2.0, -1.8,  3.2, -0.2, zlo, zhi)         # 水平筆(往左)
+htip  = [App.Vector(-3.4,-1.0,zlo), App.Vector(-1.6,-2.8,zlo),
+         App.Vector(-1.6, 0.8,zlo), App.Vector(-3.4,-1.0,zlo)]
+head  = Part.Face(Part.makePolygon(htip)).extrude(App.Vector(0,0,zhi-zlo))
+arrow = riser.fuse(shaft).fuse(head)
+
+shell  = S2.cut(S1)                     # 碗下 1mm 球殼
+legend = shell.common(arrow).common(cap)
+body   = cap.cut(legend)
+
+# ============ 6. 加入文件 + 上色 ============
+doc = App.newDocument("keycap_enter_1u_v1")
+bo = doc.addObject("Part::Feature", "Keycap_Body_White"); bo.Shape = body
+lo = doc.addObject("Part::Feature", "Legend_Black");      lo.Shape = legend
+if Gui:
+    try:
+        bo.ViewObject.ShapeColor = (0.95, 0.95, 0.95)
+        lo.ViewObject.ShapeColor = (0.10, 0.10, 0.10)
+    except Exception:
+        pass
+doc.recompute()
+
+# ============ 7. 匯出 STL + FCStd ============
+OUT = "C:/Users/ctan0/Claude AI/100_Projects/active/鍵帽專案/cad"
+os.makedirs(OUT, exist_ok=True)
+try:
+    import MeshPart
+    for shp, name in [(body, "keycap_enter_body"), (legend, "keycap_enter_legend")]:
+        m = MeshPart.meshFromShape(Shape=shp, LinearDeflection=0.04, AngularDeflection=0.15)
+        m.write(os.path.join(OUT, name + ".stl"))
+    App.Console.PrintMessage("STL 已匯出: %s\n" % OUT)
+except Exception as e:
+    App.Console.PrintError("STL 匯出失敗: %s\n" % e)
+try:
+    doc.saveAs(os.path.join(OUT, "keycap_enter_1u_v1.FCStd"))
+except Exception as e:
+    App.Console.PrintWarning("FCStd 存檔失敗: %s\n" % e)
+
+if Gui:
+    try:
+        Gui.activeDocument().activeView().viewIsometric()
+        Gui.SendMsgToActiveView("ViewFit")
+    except Exception:
+        pass
+
+App.Console.PrintMessage("完成：body vol=%.1f, legend vol=%.1f\n" % (body.Volume, legend.Volume))

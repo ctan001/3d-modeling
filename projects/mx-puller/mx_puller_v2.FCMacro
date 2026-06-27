@@ -1,0 +1,88 @@
+# mx_puller_v2.FCMacro
+# 二合一 Cherry MX 拔鍵帽 + 拔軸器
+# 修正 v1：補強肋收回 8mm 內、唇口改為內凸鉤、缺口移至臂末端、NOTCH_W 實際控制臂寬
+
+import FreeCAD, Part
+from FreeCAD import Vector
+
+doc = FreeCAD.newDocument("mx_puller_v2")
+
+# ── 參數 ──────────────────────────────────────────
+TOTAL_LEN   = 80.0   # 工具總長 mm
+BODY_W      = 27.0   # 工具寬度 mm
+THICKNESS   =  8.0   # 工具厚度 mm
+
+FORK_GAP    = 14.0   # 叉齒內側間距（鍵帽端）mm
+FORK_LEN    = 18.0   # 叉齒長度 mm
+FORK_W      =  4.0   # 叉齒寬度 mm
+LIP_DEPTH   =  1.5   # 唇口凸出深度（鉤住鍵帽底緣）mm
+
+NOTCH_W     =  4.0   # 拔軸臂寬度 mm
+NOTCH_LEN   = 16.0   # 拔軸臂長度 mm
+NOTCH_R     =  3.5   # 缺口弧半徑 mm
+
+GRIP_HOLE_R = 12.5   # 握持孔半徑 mm（Ø25）
+
+RIB_H       =  2.0   # 叉齒根部補強肋高度（在 THICKNESS 內）mm
+RIB_L       =  6.0   # 補強肋長度 mm
+
+# ── 工具函式 ───────────────────────────────────────
+def box(x, y, z, w, d, h):
+    return Part.makeBox(w, d, h, Vector(x, y, z))
+
+def cyl(x, y, z, r, h):
+    return Part.makeCylinder(r, h, Vector(x, y, z))
+
+# ── 幾何計算 ──────────────────────────────────────
+cx = TOTAL_LEN / 2
+cy = BODY_W / 2
+
+fork_inner_lo = cy - FORK_GAP / 2        # 下叉齒內側 y
+fork_inner_hi = cy + FORK_GAP / 2        # 上叉齒內側 y
+fork_y_lo     = fork_inner_lo - FORK_W   # 下叉齒外側 y
+
+slot_w        = BODY_W - 2 * NOTCH_W     # 拔軸槽寬（讓 NOTCH_W 真正有效）
+slot_y_lo     = cy - slot_w / 2          # 拔軸槽下邊
+slot_y_hi     = cy + slot_w / 2          # 拔軸槽上邊
+
+# ── 主體 ─────────────────────────────────────────
+body = box(0, 0, 0, TOTAL_LEN, BODY_W, THICKNESS)
+
+# 握持孔
+body = body.cut(cyl(cx, cy, -1, GRIP_HOLE_R, THICKNESS + 2))
+
+# ── 鍵帽端叉齒（切掉中央空隙，留兩支叉）────────────
+keycap_slot = box(TOTAL_LEN - FORK_LEN, fork_inner_lo,
+                   -1, FORK_LEN + 1, FORK_GAP, THICKNESS + 2)
+body = body.cut(keycap_slot)
+
+# 唇口：在叉齒末端內側各凸出一個小鉤（fuse），縮小開口從 14mm→11mm
+lip_lo = box(TOTAL_LEN - LIP_DEPTH, fork_inner_lo,      0, LIP_DEPTH, LIP_DEPTH, THICKNESS)
+lip_hi = box(TOTAL_LEN - LIP_DEPTH, fork_inner_hi - LIP_DEPTH, 0, LIP_DEPTH, LIP_DEPTH, THICKNESS)
+body = body.fuse(lip_lo).fuse(lip_hi)
+
+# 補強肋：叉齒根部加厚（在 THICKNESS 內，從 z = THICKNESS - RIB_H 開始）
+for fy in [fork_y_lo, fork_inner_hi]:
+    rib = box(TOTAL_LEN - FORK_LEN - RIB_L, fy,
+               THICKNESS - RIB_H, RIB_L, FORK_W, RIB_H)
+    body = body.fuse(rib)
+
+# ── 拔軸端（-x 方向，弧形缺口在臂末端）──────────────
+# 切掉兩臂之間的空隙（slot_w 由 NOTCH_W 決定，臂寬精確為 NOTCH_W）
+switch_slot = box(0, slot_y_lo, -1, NOTCH_LEN, slot_w, THICKNESS + 2)
+body = body.cut(switch_slot)
+
+# 缺口弧：圓柱中心在 x = NOTCH_R（臂開口端），切入兩臂內側面
+notch_lo = cyl(NOTCH_R, slot_y_lo, -1, NOTCH_R, THICKNESS + 2)
+notch_hi = cyl(NOTCH_R, slot_y_hi, -1, NOTCH_R, THICKNESS + 2)
+body = body.cut(notch_lo).cut(notch_hi)
+
+# ── 輸出 ─────────────────────────────────────────
+Part.show(body)
+doc.recompute()
+FreeCAD.Gui.SendMsgToActiveView("ViewFit")
+
+print("mx_puller_v2 完成")
+print(f"  尺寸：{TOTAL_LEN}x{BODY_W}x{THICKNESS}mm（補強肋在厚度內）")
+print(f"  叉齒間距：{FORK_GAP}mm → 唇口後：{FORK_GAP - 2*LIP_DEPTH}mm")
+print(f"  拔軸臂寬：{NOTCH_W}mm，缺口弧 R={NOTCH_R}mm")

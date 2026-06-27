@@ -1,0 +1,95 @@
+# mx_puller_v1.FCMacro
+# 二合一 Cherry MX 拔鍵帽 + 拔軸器
+# 尺寸：80mm x 27mm x 8mm，PETG 建議填充 50%+
+
+import FreeCAD, Part, math
+from FreeCAD import Vector
+
+doc = FreeCAD.newDocument("mx_puller_v1")
+
+# ── 參數 ──────────────────────────────────────────
+TOTAL_LEN   = 80.0   # 工具總長 mm
+BODY_W      = 27.0   # 工具寬度 mm
+THICKNESS   =  8.0   # 工具厚度 mm
+
+FORK_GAP    = 14.0   # 叉齒間距（鍵帽端） mm
+FORK_LEN    = 18.0   # 叉齒長度 mm
+FORK_W      =  4.0   # 叉齒寬度 mm
+LIP_DEPTH   =  1.5   # 唇口深度（鉤住鍵帽底緣）mm
+LIP_ANGLE   = 15.0   # 唇口內凹角度 deg
+
+NOTCH_GAP   = 14.0   # 缺口間距（軸體端）mm
+NOTCH_LEN   = 16.0   # 缺口臂長度 mm
+NOTCH_W     =  4.0   # 缺口臂寬度 mm
+NOTCH_R     =  3.5   # 缺口弧半徑 mm
+
+GRIP_HOLE_R = 12.5   # 握持孔半徑 mm（Ø25）
+NECK_W      = 20.0   # 握持區寬度 mm
+
+RIB_H       =  2.0   # 叉齒根部補強肋高度 mm
+RIB_L       =  6.0   # 補強肋長度 mm
+
+# ── 工具函式 ───────────────────────────────────────
+def box(x, y, z, w, d, h):
+    """建立一個方塊，左下角在 (x,y,z)"""
+    return Part.makeBox(w, d, h, Vector(x, y, z))
+
+def cyl(x, y, z, r, h, angle_start=0, angle_end=360):
+    return Part.makeCylinder(r, h, Vector(x, y, z), Vector(0, 0, 1),
+                              angle_end - angle_start)
+
+# ── 主體：中央握持區 ──────────────────────────────
+cx = TOTAL_LEN / 2  # 中心 x
+cy = BODY_W / 2     # 中心 y（y 方向對稱）
+
+body = box(0, 0, 0, TOTAL_LEN, BODY_W, THICKNESS)
+
+# 握持孔（橢圓近似：用圓孔 Ø25）
+grip_hole = cyl(cx, cy, -1, GRIP_HOLE_R, THICKNESS + 2)
+body = body.cut(grip_hole)
+
+# ── 鍵帽端叉齒（+x 方向） ─────────────────────────
+fork_y_lo = cy - FORK_GAP / 2 - FORK_W  # 下叉齒底邊
+fork_y_hi = cy + FORK_GAP / 2            # 上叉齒底邊
+
+# 切掉叉齒之間的空隙（保留兩支叉）
+keycap_slot = box(TOTAL_LEN - FORK_LEN, cy - FORK_GAP / 2,
+                   -1, FORK_LEN + 1, FORK_GAP, THICKNESS + 2)
+body = body.cut(keycap_slot)
+
+# 唇口（內凹 15°，用小方塊貼在叉齒末端底面切除）
+lip_h = LIP_DEPTH / math.tan(math.radians(90 - LIP_ANGLE))
+
+for fy in [fork_y_lo, fork_y_hi]:
+    lip_box = box(TOTAL_LEN - LIP_DEPTH, fy, 0, LIP_DEPTH, FORK_W, LIP_DEPTH)
+    body = body.cut(lip_box)
+
+# 叉齒根部補強肋（兩側各一個）
+for fy in [fork_y_lo, fork_y_hi + FORK_W - RIB_L]:
+    rib = box(TOTAL_LEN - FORK_LEN - RIB_L, fy,
+               THICKNESS, RIB_L, FORK_W, RIB_H)
+    body = body.fuse(rib)
+
+# ── 拔軸端缺口（-x 方向，弧形缺口） ──────────────
+notch_x_end = NOTCH_LEN  # 臂的長度從 x=0 開始
+
+# 切掉兩臂之間的空隙
+switch_slot = box(0, cy - NOTCH_GAP / 2,
+                   -1, NOTCH_LEN, NOTCH_GAP, THICKNESS + 2)
+body = body.cut(switch_slot)
+
+# 在臂末端內側挖弧形缺口（用圓柱切除）
+for ny in [cy - NOTCH_GAP / 2, cy + NOTCH_GAP / 2 - NOTCH_W]:
+    notch_cyl = cyl(NOTCH_LEN / 2, ny + NOTCH_W / 2,
+                     -1, NOTCH_R, THICKNESS + 2)
+    body = body.cut(notch_cyl)
+
+# ── 輸出 ─────────────────────────────────────────
+Part.show(body)
+doc.recompute()
+FreeCAD.Gui.SendMsgToActiveView("ViewFit")
+
+print("mx_puller_v1 完成")
+print(f"  尺寸：{TOTAL_LEN}x{BODY_W}x{THICKNESS}mm")
+print(f"  叉齒間距：{FORK_GAP}mm  |  缺口間距：{NOTCH_GAP}mm")
+print(f"  唇口深度：{LIP_DEPTH}mm @ {LIP_ANGLE}°")

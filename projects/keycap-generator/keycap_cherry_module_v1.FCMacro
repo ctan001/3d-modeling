@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+# keycap_cherry_module_v1.FCMacro  —  Cherry Key 設計模組（基準）
+# 帽體幾何 = v2 實印驗證版（全平頂 1U + MX 十字軸，頂面朝下免支撐）
+# 【以後做 Cherry Key 只改最上面「字型設定區」，其餘不要動】
+# 帽體與字為兩獨立 solid -> H2D 雙色 PETG
+import os
+import FreeCAD as App
+import Part
+try:
+    import FreeCADGui as Gui
+except Exception:
+    Gui = None
+
+# ======================================================================
+#                        字型設定區（只改這裡）
+# ======================================================================
+LEGEND_NAME = "enter"          # 輸出檔名用
+LEGEND_MODE = "arrow_return"   # "arrow_return"(回車折返箭頭) 或 "text"(文字)
+
+# --- LEGEND_MODE=="text" 時生效 ---
+TEXT      = "A"
+FONT      = "C:/Windows/Fonts/arialbd.ttf"   # 粗體較適合鍵帽
+FONT_SIZE = 7.0                              # 約 7mm 高
+# ======================================================================
+
+# ===== 帽體參數（鎖定，勿動）=====
+BASE=18.2; TOP=13.5; H=8.0; WALL=1.5; CORNER_R=1.5
+CEIL_Z=5.5; LEG_DEPTH=1.0
+BOSS_R=2.75; BOSS_H=4.0; CROSS_L=4.1; CROSS_W=1.3
+ZLO, ZHI = 4.5, 9.0
+
+def rect_wire(w,z):
+    h=w/2.0
+    return Part.makePolygon([App.Vector(-h,-h,z),App.Vector(h,-h,z),App.Vector(h,h,z),App.Vector(-h,h,z),App.Vector(-h,-h,z)])
+def box(x0,y0,x1,y1,z0,z1):
+    return Part.makeBox(x1-x0,y1-y0,z1-z0,App.Vector(x0,y0,z0))
+
+# ----- 帽體（v2）-----
+cap = Part.makeLoft([rect_wire(BASE,0.0),rect_wire(TOP,H)],True)
+ce=[e for e in cap.Edges if e.BoundBox.ZLength>1.0]
+try: cap=cap.makeFillet(CORNER_R,ce)
+except Exception as e: App.Console.PrintWarning("圓角失敗:%s\n"%e)
+cap = cap.cut(Part.makeLoft([rect_wire(BASE-2*WALL,-0.1),rect_wire(TOP-2*WALL,CEIL_Z)],True))
+cap = cap.fuse(Part.makeCylinder(BOSS_R,BOSS_H,App.Vector(0,0,CEIL_Z-BOSS_H)))
+cz0,cz1=CEIL_Z-BOSS_H-0.2,CEIL_Z+0.01
+cap = cap.cut(box(-CROSS_L/2,-CROSS_W/2,CROSS_L/2,CROSS_W/2,cz0,cz1).fuse(
+              box(-CROSS_W/2,-CROSS_L/2,CROSS_W/2,CROSS_L/2,cz0,cz1)))
+
+doc = App.newDocument("keycap_%s_v1"%LEGEND_NAME)
+
+# ----- 字型柱（依模式）-----
+def build_arrow_return():
+    a = box(1.6,-1.8,3.2,2.6,ZLO,ZHI).fuse(box(-2.0,-1.8,3.2,-0.2,ZLO,ZHI))
+    head = Part.Face(Part.makePolygon([App.Vector(-3.4,-1.0,ZLO),App.Vector(-1.6,-2.8,ZLO),
+                                       App.Vector(-1.6,0.8,ZLO),App.Vector(-3.4,-1.0,ZLO)])).extrude(App.Vector(0,0,ZHI-ZLO))
+    return a.fuse(head)
+
+def build_text(text, font, size):
+    import Draft
+    ss = Draft.make_shapestring(String=text, FontFile=font, Size=size)
+    doc.recompute()
+    shp = ss.Shape.copy()
+    doc.removeObject(ss.Name)
+    bb = shp.BoundBox
+    shp.translate(App.Vector(-(bb.XMin+bb.XLength/2.0), -(bb.YMin+bb.YLength/2.0), -bb.ZMin+ZLO))
+    return shp.extrude(App.Vector(0,0,ZHI-ZLO))
+
+prism = build_text(TEXT,FONT,FONT_SIZE) if LEGEND_MODE=="text" else build_arrow_return()
+
+slab = box(-TOP,-TOP,TOP,TOP,H-LEG_DEPTH,H+0.1)
+legend = slab.common(prism).common(cap)
+body   = cap.cut(legend)
+
+bo=doc.addObject("Part::Feature","Keycap_Body_White"); bo.Shape=body
+lo=doc.addObject("Part::Feature","Legend_Black");      lo.Shape=legend
+if Gui:
+    try: bo.ViewObject.ShapeColor=(0.95,0.95,0.95); lo.ViewObject.ShapeColor=(0.10,0.10,0.10)
+    except Exception: pass
+doc.recompute()
+
+OUT="C:/Users/ctan0/Claude AI/100_Projects/active/鍵帽專案/cad"; os.makedirs(OUT,exist_ok=True)
+try:
+    import MeshPart
+    for shp,name in [(body,"keycap_%s_body"%LEGEND_NAME),(legend,"keycap_%s_legend"%LEGEND_NAME)]:
+        MeshPart.meshFromShape(Shape=shp,LinearDeflection=0.04,AngularDeflection=0.15).write(os.path.join(OUT,name+".stl"))
+except Exception as e: App.Console.PrintError("STL失敗:%s\n"%e)
+try: doc.saveAs(os.path.join(OUT,"keycap_%s_v1.FCStd"%LEGEND_NAME))
+except Exception as e: App.Console.PrintWarning("FCStd失敗:%s\n"%e)
+if Gui:
+    try: Gui.activeDocument().activeView().viewIsometric(); Gui.SendMsgToActiveView("ViewFit")
+    except Exception: pass
+App.Console.PrintMessage("[%s] body vol=%.1f legend vol=%.1f\n"%(LEGEND_NAME,body.Volume,legend.Volume))
